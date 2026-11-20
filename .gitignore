@@ -1,0 +1,9 @@
+bin/
+obj/
+publish/
+.vs/
+*.user
+
+# Dev-only launch/publish profiles with local paths
+Properties/launchSettings.json
+Properties/PublishProfiles/
