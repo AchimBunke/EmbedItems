@@ -1,28 +1,30 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
-        <OutputType>Exe</OutputType>
+        <OutputType>WinExe</OutputType>
         <AssemblyName>EmbedItems</AssemblyName>
-        <TargetFramework>net10.0</TargetFramework>
+        <RootNamespace>EmbedItems.App</RootNamespace>
+        <TargetFramework>net10.0-windows</TargetFramework>
+        <UseWindowsForms>true</UseWindowsForms>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
+        <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     </PropertyGroup>
-	
+
+    <!-- Release: one self-contained, compressed exe. WinForms can't be trimmed, so this one is bigger than the CLI. -->
     <PropertyGroup Condition="'$(Configuration)' == 'Release'">
         <RuntimeIdentifier>win-x64</RuntimeIdentifier>
         <SelfContained>true</SelfContained>
         <PublishSingleFile>true</PublishSingleFile>
         <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
         <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
-
+        <InvariantGlobalization>true</InvariantGlobalization>
         <DebugType>none</DebugType>
         <DebugSymbols>false</DebugSymbols>
     </PropertyGroup>
 
-
-  <ItemGroup>
-    <PackageReference Include="GBX.NET" Version="2.5.1" />
-    <PackageReference Include="GBX.NET.LZO" Version="2.1.6" />
-  </ItemGroup>
+    <ItemGroup>
+        <ProjectReference Include="..\Core\EmbedItems.Core.csproj" />
+    </ItemGroup>
 
 </Project>

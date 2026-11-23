@@ -1,59 +1,94 @@
 # EmbedItems
 
-Embeds the custom items and blocks used in a Trackmania map into the map file, **together with every
-file they reference** (meshes, textures, materials, ...). The result is a map that works for other
-players without them having your Items folder.
+Embeds the custom items used in a Trackmania map into the map file, **together with every file they use**
+(meshes, textures, materials, ...), so other players see them without having your Items folder.
+It can also update embedded items from your Items folder, repair maps after an editor save, and extract
+embedded items back to their original place.
 
 ## Download
 
-Grab `EmbedItems.exe` from the [Releases](../../releases) page. It is a single self-contained file
-(no .NET install needed). Put it anywhere you like.
+From the [Releases](../../releases) page:
 
-## Usage
+- **`EmbedItems.exe`**: the app. Double-click it.
+- **`EmbedItemsCli.exe`**: the command line version, with the same features (for scripts or automation).
 
-**Double-click `EmbedItems.exe`**
-It finds your Trackmania folder (`Documents\Trackmania2020` or `Documents\Trackmania`) and watches
-your `Maps` folder. Every time you save a map in the editor, an embedded copy is written next to it.
-Close the window to stop.
+Both are single self-contained files (no .NET install needed). Put them anywhere.
 
-**Drag a map onto `EmbedItems.exe`**
-Embeds that one map and keeps the window open so you can read the result.
+## Before you start
 
-Either way the original map is not changed. The output is saved next to it as
-`<name> (embedded).Map.Gbx`, with " (embedded)" added to the map name.
-Embedded items are renamed to `<item> (embedded).Item.Gbx` so they don't clash with the
-copies in your Items folder.
+1. **Validate your map** in the editor first. Only validated maps can be played directly.
+2. Embed it with EmbedItems. The result is saved as `<name> (embedded).Map.Gbx` next to it (or over the original,
+   if you choose). The map name in game stays the same unless you change it.
+3. **Share the embedded map as it is.** If you open and save it in the editor, the game removes the embedded
+   files again. That's not a problem: just embed that map once more and they're back.
+
+## Using the app
+
+- **Map tab**: choose a map. EmbedItems scans it and lists every custom item and what will happen to it.
+  - **Embed** writes the embedded map.
+  - **Extract items...** writes the items embedded in a map back to their original place in your Items
+    folder (or any folder you choose), together with their files. Existing files are skipped unless you tick
+    "Overwrite existing files".
+- **Folder tab**: scans all maps below a folder and lists those that need embedding (choose what to look for:
+  items not embedded yet, embedded items with missing files, embedded items older than your Items folder).
+  Tick the ones you want and press **Embed selected**.
+- **Watch tab**: embeds every map you save in the editor, automatically.
+- **Embed options** (top):
+  - *Update embedded items from my Items folder* (on by default): items embedded before are replaced by the
+    current version from your Items folder. Off: they're kept and only missing files are put back.
+  - *Save as new file* or *Replace the original map*.
+
+You can also drop a map onto `EmbedItems.exe` to open it.
 
 ## Command line
 
 ```
-EmbedItems                                            watch your Maps folder
-EmbedItems <map.Map.Gbx>                              embed once
-EmbedItems <TrackmaniaFolder> <map.Map.Gbx>           embed once
-EmbedItems <TrackmaniaFolder> [--watch] [mapsFolder]  embed after every save
+EmbedItemsCli scan <map> [<map> ...]                    show what embedding would do, change nothing
+EmbedItemsCli embed <map> [<map> ...] [embed options]   embed
+EmbedItemsCli scan-folder <folder> [--filter <list>] [--embed] [embed options]
+EmbedItemsCli extract <map> [--target <ItemsFolder>] [--overwrite]
+EmbedItemsCli watch [<mapsFolder>] [embed options]
 
---dry-run              print every resolved reference, change nothing
---verbose              also list complete / not-found items
---standard-ancestors   AncestorLevel N = N folders above the owner's folder
-                       (default: level 1 = the owner's own folder, level 2 = one up, ...)
+Embed options:
+  --no-overwrite        keep items embedded earlier as they are (only put back missing files)
+  --replace             save over the original map
+  --map-name <name>     new map name (default: unchanged)
+
+--filter <list>         not-embedded, missing, outdated, all (default: all)
+--tm <folder>           your Trackmania folder (the one containing Items\), if auto-detection fails
 ```
 
-`<TrackmaniaFolder>` is the folder that contains `Items\`. Pass it if your Documents folder is
-somewhere unusual and auto-detection fails.
+## What happens to an item
 
-## Notes
+Trackmania only loads an embedded file's dependencies if they are **below that file's own folder** in the map.
+An item in `Items\Trees\` that uses `Items\_Assets\Tex.dds` therefore doesn't work when simply copied into the
+map. EmbedItems solves this like this:
 
-- Only custom items/blocks from your `Items\` / `Blocks\` folders are embedded. Stock game files are
-  reported as "not found under Items" and skipped, which is expected.
-- Files that are already embedded in the map are never overwritten.
+- Items that use extra files are copied into the map's **Items root** as `<name>_<id>.Item.Gbx`, where every
+  other file is below them. Their references are rewritten accordingly.
+- The files they use keep their usual paths, so items that share a texture share one copy.
+- The item's original path is stored in its description (`[EmbedItems] Items\Trees\Tree.Item.Gbx`). That's how
+  EmbedItems finds the item again for updates and how Extract puts it back where it was.
+- The item's author is never changed (items whose author was changed afterwards don't show in play mode).
+- Items without extra files are left alone: the game embeds those by itself.
+
+An item can't be embedded (and is reported and left unchanged) when:
+
+- it uses a file outside your Items folder, or
+- one of its dependency files (for example a `.Texture.Gbx`) points to a file **above** its own folder
+  (`..\Image\x.dds`). Keep such files next to, or below, the file that uses them.
+
+Custom blocks aren't supported yet.
 
 ## Building
 
 ```
-dotnet publish EmbedItems.csproj -c Release -o publish
+dotnet test Tests/EmbedItems.Tests.csproj
+dotnet publish App/EmbedItems.App.csproj -c Release -o publish
+dotnet publish Cli/EmbedItems.Cli.csproj -c Release -o publish
 ```
 
-Produces a single self-contained `publish\EmbedItems.exe` (win-x64).
+Projects: `Core` (all embedding logic), `App` (WinForms UI), `Cli` (command line), `Tests`.
 
 ## Credits
 
@@ -65,4 +100,4 @@ Produces a single self-contained `publish\EmbedItems.exe` (win-x64).
 ## License
 
 EmbedItems is licensed under the [GNU General Public License v3.0 or later](LICENSE).
-It has to be, because the exe bundles GBX.NET.LZO / NativeSharpLzo, which are GPL-3.0-or-later.
+It has to be, because the exes bundle GBX.NET.LZO / NativeSharpLzo, which are GPL-3.0-or-later.

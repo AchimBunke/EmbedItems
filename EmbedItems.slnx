@@ -1,0 +1,14 @@
+<Solution>
+  <Folder Name="/App/">
+    <Project Path="App/EmbedItems.App.csproj" />
+  </Folder>
+  <Folder Name="/Cli/">
+    <Project Path="Cli/EmbedItems.Cli.csproj" />
+  </Folder>
+  <Folder Name="/Core/">
+    <Project Path="Core/EmbedItems.Core.csproj" />
+  </Folder>
+  <Folder Name="/Tests/">
+    <Project Path="Tests/EmbedItems.Tests.csproj" />
+  </Folder>
+</Solution>
