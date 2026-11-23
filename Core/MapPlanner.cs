@@ -141,7 +141,7 @@ public static class MapPlanner
             foreach (var r in refs)
                 if (Resolve(placedId, r.AncestorLevel, r.FilePath, ctx.Tm).Target is { } t)
                     ctx.UsedByOthers.Add(t);
-            return Simple(placedId, ItemState.EmbeddedByOthers, "Already embedded by the game or another tool. Left unchanged.");
+            return Simple(placedId, ItemState.EmbeddedByOthers, "already embedded by the game or another tool, left unchanged.");
         }
 
         if (ctx.Disk(placedId) is not null)
@@ -154,7 +154,7 @@ public static class MapPlanner
             return PlanFromDisk(placedId, ctx, ours: null);
         }
 
-        return Simple(placedId, ItemState.NotFound, "Neither embedded in the map nor found in your Items folder (stock item or missing file). Left unchanged.");
+        return Simple(placedId, ItemState.NotFound, "not embedded and not in your Items folder (stock item or missing file), left unchanged.");
     }
 
     record Ours(string ZipKey, byte[] Bytes, OriginalPathMarker.Info Marker);
@@ -196,7 +196,7 @@ public static class MapPlanner
         if (refs.Count == 0 && ours is null)
         {
             plan.State = ItemState.NoReferences;
-            plan.Summary = "Uses no extra files; the game embeds it by itself when you save the map. Left unchanged.";
+            plan.Summary = "uses no extra files (the game embeds it by itself), left unchanged.";
             return plan;
         }
 
@@ -220,7 +220,7 @@ public static class MapPlanner
             plan.Ident = GbxFileUtils.ReadIdent(ours.Bytes);
             plan.FilesToWrite.Clear();
             plan.State = ItemState.UpToDate;
-            plan.Summary = $"Embedded as {ours.ZipKey}, up to date.";
+            plan.Summary = $"embedded as {ours.ZipKey}, up to date.";
             return plan;
         }
 
@@ -239,8 +239,8 @@ public static class MapPlanner
         NoteRewritten(plan, rewritten);
         plan.State = ours is null ? ItemState.WillEmbed : ItemState.WillUpdate;
         plan.Summary = ours is null
-            ? $"Will be embedded as {plan.EmbeddedName} together with {plan.FileCount} file(s)."
-            : $"The version in your Items folder changed; the embedded copy {plan.EmbeddedName} will be updated.";
+            ? $"will be embedded as {plan.EmbeddedName} with {plan.FileCount} file(s)."
+            : $"changed in your Items folder, the embedded copy {plan.EmbeddedName} will be updated.";
         return plan;
     }
 
@@ -281,14 +281,13 @@ public static class MapPlanner
         if (plan.ItemBytes is null && plan.FilesToWrite.Count == 0)
         {
             plan.State = ItemState.UpToDate;
-            plan.Summary = $"Embedded as {ours.ZipKey}, complete.";
+            plan.Summary = $"embedded as {ours.ZipKey}, complete.";
         }
         else
         {
             NoteRewritten(plan, rewritten);
             plan.State = ItemState.WillRestoreFiles;
-            plan.Summary = $"Embedded as {ours.ZipKey}, but {plan.FilesToWrite.Count} file(s) are missing from the map " +
-                           "(it was probably saved in the editor). They will be added again from your Items folder.";
+            plan.Summary = $"embedded as {ours.ZipKey}, but {plan.FilesToWrite.Count} file(s) are missing (map saved in the editor?); they will be added again.";
         }
         return plan;
     }

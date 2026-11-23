@@ -10,7 +10,10 @@ public static class Embedder
     public static string? EmbedFile(string mapPath, TrackmaniaFolder tm, EmbedOptions options, Action<string> log)
     {
         var plan = MapPlanner.Plan(mapPath, tm, options);
-        foreach (var line in PlanText.Describe(plan)) log(line);
+        log($"Embedding {Path.GetFileName(mapPath)} ...");
+        foreach (var w in plan.Warnings) log("  ! " + w);
+        foreach (var item in plan.Items.Where(i => i.State == ItemState.CannotEmbed))
+            log($"  ! {PlanText.ItemName(item)}: {PlanText.ItemText(item)}");
         return Apply(plan, options, log);
     }
 
@@ -20,7 +23,7 @@ public static class Embedder
         bool rename = !string.IsNullOrWhiteSpace(options.MapName) && options.MapName != plan.MapName;
         if (!plan.NeedsWork && !rename)
         {
-            log("Nothing to do: the map is already complete.");
+            log("  Nothing to do: everything that can be embedded already is.");
             return null;
         }
 
@@ -69,8 +72,14 @@ public static class Embedder
         var outPath = options.ReplaceOriginal ? plan.MapPath : OutputPath(plan.MapPath);
         plan.Gbx.Save(outPath);
 
-        log($"Saved {Path.GetFileName(outPath)}: {writes.Count} file(s) written, {deletes.Count} removed, {moved} placed object(s) pointed to embedded items.");
-        log("Share this file as it is. If you open and save it in the editor, the game removes the embedded files again; run Embed on it once more afterwards.");
+        foreach (var item in plan.Items.Where(i => i.Changes))
+        {
+            log($"  {PlanText.ItemName(item)}: {PlanText.Done(item)}");
+            foreach (var n in item.Notes) log("      - " + n);
+        }
+        if (deletes.Count > 0) log($"  Removed {deletes.Count} file(s) no longer used.");
+        log($"Saved {Path.GetFileName(outPath)} ({moved} placed object(s) use embedded items).");
+        log("  Share this file as it is. Saving it in the editor removes the embedded files again (then just embed it once more).");
         return outPath;
     }
 

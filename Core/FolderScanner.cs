@@ -30,7 +30,12 @@ public static class FolderScanner
         log($"Scanning {maps.Count} map(s) in {folder} ...");
 
         var found = new System.Collections.Concurrent.ConcurrentBag<MapScanEntry>();
-        Parallel.ForEach(maps, new ParallelOptions { CancellationToken = cancel }, path =>
+        int checkedCount = 0;
+        int step = Math.Max(10, maps.Count / 20);   // about 20 progress lines, at most one per 10 maps
+        // Load-balanced: each thread takes the next map when it's free. The default for a list hands every
+        // thread a fixed block up front, so one block of big maps kept a single thread busy long after the rest.
+        var partitioner = System.Collections.Concurrent.Partitioner.Create(maps, loadBalance: true);
+        Parallel.ForEach(partitioner, new ParallelOptions { CancellationToken = cancel }, path =>
         {
             try
             {
@@ -44,10 +49,12 @@ public static class FolderScanner
             {
                 found.Add(new MapScanEntry(path, Path.GetFileName(path), "can't be read", false, ex.Message));
             }
+            int done = Interlocked.Increment(ref checkedCount);
+            if (done % step == 0 && done < maps.Count) log($"  checked {done}/{maps.Count} maps, {found.Count(m => m.Error is null)} match so far ...");
         });
 
         var result = found.OrderBy(m => m.MapPath, StringComparer.OrdinalIgnoreCase).ToList();
-        log($"{result.Count(m => m.Error is null)} map(s) match.");
+        log($"Checked {maps.Count} map(s), {result.Count(m => m.Error is null)} match.");
         foreach (var m in result.Where(m => m.Error is not null)) log($"  ! {m.MapPath}: {m.Error}");
         return result;
     }

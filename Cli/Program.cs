@@ -52,6 +52,7 @@ try
 
         case "embed":
             foreach (var map in RequireMaps()) EmbedOne(map);
+            Console.WriteLine("Done.");
             return 0;
 
         case "scan-folder":
@@ -61,6 +62,7 @@ try
             foreach (var m in found.Where(m => m.Error is null)) Console.WriteLine($"  {m.MapPath}  [{m.Summary}]");
             if (options.ContainsKey("--embed"))
                 foreach (var m in found.Where(m => m.Error is null && m.NeedsWork)) EmbedOne(m.MapPath);
+            Console.WriteLine("Done.");
             return 0;
         }
 

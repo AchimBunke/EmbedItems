@@ -7,6 +7,9 @@
         <TargetFramework>net10.0</TargetFramework>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
+        <!-- Folder scans parse many maps in parallel and allocate large buffers; with the default GC all threads
+             wait on one collector (1050 maps: 23.6 s vs 10.5 s with server GC). -->
+        <ServerGarbageCollection>true</ServerGarbageCollection>
     </PropertyGroup>
 
     <!-- Release: one self-contained exe. Trimmed (no UI framework here), which keeps it small. -->

@@ -13,7 +13,11 @@ sealed class MainForm : Form
     readonly CheckBox overwriteFromDisk = new() { Text = "Update embedded items from my Items folder", Checked = true, AutoSize = true };
     readonly RadioButton saveAsNew = new() { Text = "Save as new file  (<name> (embedded).Map.Gbx)", Checked = true, AutoSize = true };
     readonly RadioButton replaceOriginal = new() { Text = "Replace the original map", AutoSize = true };
-    readonly TextBox log = new() { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Both, WordWrap = false, Dock = DockStyle.Fill, Font = new Font(FontFamily.GenericMonospace, 9) };
+    readonly RichTextBox log = new()
+    {
+        ReadOnly = true, WordWrap = false, Dock = DockStyle.Fill, DetectUrls = false,
+        BackColor = SystemColors.Window, BorderStyle = BorderStyle.None, Font = new Font("Segoe UI", 9.5f),
+    };
 
     // Map tab
     readonly TextBox mapPath = new() { Dock = DockStyle.Fill };
@@ -55,7 +59,17 @@ sealed class MainForm : Form
 
         var split = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Horizontal, SplitterDistance = 440 };
         split.Panel1.Controls.Add(tabs);
-        split.Panel2.Controls.Add(log);
+        var logPanel = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2 };
+        logPanel.Controls.Add(new Label { Text = "Messages", AutoSize = true, Margin = new Padding(3, 8, 3, 3), Font = new Font("Segoe UI", 9f, FontStyle.Bold) });
+        logPanel.Controls.Add(Button("Clear", () => log.Clear()));
+        logPanel.Controls.Add(log);
+        logPanel.SetColumnSpan(log, 2);
+        logPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        logPanel.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        logPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        logPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        split.Panel2.Controls.Add(logPanel);
+        saveAsNew.CheckedChanged += (_, _) => UpdateDefaultMapName();
 
         var root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, Padding = new Padding(8) };
         root.Controls.Add(PathRow("Trackmania folder (contains Items\\):", tmFolder, BrowseFolder(tmFolder)));
@@ -90,7 +104,7 @@ sealed class MainForm : Form
     {
         var page = new TabPage("Map");
         var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1 };
-        layout.Controls.Add(PathRow("Map:", mapPath, BrowseMap(), Action("Scan", Scan)));
+        layout.Controls.Add(PathRow("Map:", mapPath, BrowseMap(), Action("Scan", () => Scan())));
         layout.Controls.Add(items);
         var bottom = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true };
         bottom.Controls.AddRange([new Label { Text = "New map name:", AutoSize = true, Margin = new Padding(3, 8, 3, 3) }]);
@@ -204,17 +218,18 @@ sealed class MainForm : Form
 
     // --- actions ---------------------------------------------------------------------------------------------
 
-    async Task Scan()
+    /// <summary>Scans the map and fills the item list. quiet: refresh the list only (after embedding).</summary>
+    async Task Scan(bool quiet = false)
     {
         if (!TryGetInputs(out var tm, needMap: true)) return;
         var path = mapPath.Text;
         var options = Options();
-        var plan = await Run(() =>
+        var plan = await Run(quiet ? null : $"Scan {Path.GetFileName(path)}", () =>
         {
             var p = MapPlanner.Plan(path, tm, options);
-            foreach (var line in PlanText.Describe(p)) Log(line);
+            if (!quiet) foreach (var line in PlanText.Describe(p)) Log(line);
             return p;
-        });
+        }, reportDone: !quiet);
         if (plan is null) return;
 
         items.Items.Clear();
@@ -227,11 +242,28 @@ sealed class MainForm : Form
             items.Items.Add(row);
         }
         items.ShowItemToolTips = true;
-        if (string.IsNullOrWhiteSpace(mapName.Text) || mapName.Tag as string != path)
+        if (scannedMap != path)   // a different map: start from its own name again
         {
-            mapName.Text = plan.MapName;
-            mapName.Tag = path;
+            scannedMap = path;
+            scannedMapName = plan.MapName;
+            mapName.Text = DefaultMapName(saveAsNew.Checked);
         }
+    }
+
+    string? scannedMap, scannedMapName;
+
+    /// <summary>Saved as a new file the copy is called "&lt;name&gt; (embedded)" in game; replacing keeps the name.</summary>
+    string DefaultMapName(bool asNewFile)
+    {
+        var name = scannedMapName ?? "";
+        return asNewFile && !name.EndsWith(" (embedded)", StringComparison.OrdinalIgnoreCase) ? name + " (embedded)" : name;
+    }
+
+    void UpdateDefaultMapName()
+    {
+        // only replace the name if the user hasn't typed their own
+        if (scannedMapName is not null && mapName.Text == DefaultMapName(!saveAsNew.Checked))
+            mapName.Text = DefaultMapName(saveAsNew.Checked);
     }
 
     async Task EmbedMap()
@@ -240,8 +272,8 @@ sealed class MainForm : Form
         var path = mapPath.Text;
         var options = Options() with { MapName = mapName.Text.Trim() };
         if (options.ReplaceOriginal && !Confirm($"Replace the original map file?\n{path}")) return;
-        await Run(() => Embedder.EmbedFile(path, tm, options, Log));
-        await Scan();
+        await Run($"Embed {Path.GetFileName(path)}", () => Embedder.EmbedFile(path, tm, options, Log));
+        await Scan(quiet: true);
     }
 
     async Task Extract()
@@ -256,11 +288,7 @@ sealed class MainForm : Form
         var path = mapPath.Text;
         var target = dialog.SelectedPath;
         var options = new ExtractOptions { Overwrite = overwriteOnExtract.Checked };
-        await Run(() =>
-        {
-            Log($"Extracting the embedded items of {Path.GetFileName(path)} into {target}");
-            return Extractor.Extract(path, target, tm, options, Log);
-        });
+        await Run($"Extract {Path.GetFileName(path)} into {target}", () => Extractor.Extract(path, target, tm, options, Log));
     }
 
     async Task ScanFolder()
@@ -272,7 +300,7 @@ sealed class MainForm : Form
                    | (filterMissing.Checked ? ScanFilter.MissingFiles : 0)
                    | (filterOutdated.Checked ? ScanFilter.Outdated : 0);
         var options = Options();
-        var found = await Run(() => FolderScanner.Scan(folder, tm, options, filter, Log));
+        var found = await Run($"Scan folder {folder}", () => FolderScanner.Scan(folder, tm, options, filter, Log));
         if (found is null) return;
 
         maps.Items.Clear();
@@ -295,13 +323,12 @@ sealed class MainForm : Form
         if (selected.Count == 0) { Log("No maps selected."); return; }
         var options = Options();
         if (options.ReplaceOriginal && !Confirm($"Replace the original files of {selected.Count} map(s)?")) return;
-        await Run(() =>
+        await Run($"Embed {selected.Count} selected map(s)", () =>
         {
             foreach (var path in selected)
             {
                 try { Embedder.EmbedFile(path, tm, options, Log); }
-                catch (Exception ex) { Log($"! {Path.GetFileName(path)}: {ex.Message}"); }
-                Log("");
+                catch (Exception ex) { Log($"Error: {Path.GetFileName(path)}: {ex.Message}"); }
             }
             return true;
         });
@@ -329,11 +356,12 @@ sealed class MainForm : Form
                 var options = (EmbedOptions)Invoke(Options);
                 try
                 {
-                    Log($"Saved: {Path.GetFileName(path)}");
+                    Log("");
+                    Log($"▶ You saved {Path.GetFileName(path)}, embedding it");
                     if (Embedder.EmbedFile(path, tm, options, Log) is { } written) watcher?.Ignore(written);
+                    Log("Done.");
                 }
-                catch (Exception ex) { Log($"! {Path.GetFileName(path)}: {ex.Message}"); }
-                Log("");
+                catch (Exception ex) { Log($"Error: {Path.GetFileName(path)}: {ex.Message}"); }
             }
         });
         watchButton.Text = "Stop watching";
@@ -373,15 +401,29 @@ sealed class MainForm : Form
         foreach (ListViewItem i in maps.Items) i.Checked = value;
     }
 
-    /// <summary>Runs work in the background with the action buttons disabled. Returns default on error (logged).</summary>
-    async Task<T?> Run<T>(Func<T> work)
+    /// <summary>
+    /// Runs work in the background with the action buttons disabled. Returns default on error (logged).
+    /// A title starts the output with an empty line and a "▶ title" header, so operations are easy to tell apart.
+    /// </summary>
+    async Task<T?> Run<T>(string? title, Func<T> work, bool reportDone = true)
     {
+        if (title is not null)
+        {
+            if (log.TextLength > 0) Log("");
+            Log("▶ " + title);
+        }
         foreach (var b in actionButtons) b.Enabled = false;
         UseWaitCursor = true;
-        try { return await Task.Run(work); }
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        try
+        {
+            var result = await Task.Run(work);
+            if (reportDone) Log($"Done ({watch.Elapsed.TotalSeconds:0.0} s).");
+            return result;
+        }
         catch (Exception ex)
         {
-            Log("! " + ex.Message);
+            Log("Error: " + ex.Message);
             return default;
         }
         finally
@@ -394,7 +436,26 @@ sealed class MainForm : Form
     void Log(string line)
     {
         if (InvokeRequired) { BeginInvoke(() => Log(line)); return; }
+        log.SelectionStart = log.TextLength;
+        log.SelectionLength = 0;
+        log.SelectionColor = LineColor(line);
+        log.SelectionFont = line.StartsWith('▶') ? headerFont : log.Font;
         log.AppendText(line + Environment.NewLine);
+        log.ScrollToCaret();
+    }
+
+    readonly Font headerFont = new("Segoe UI", 10f, FontStyle.Bold);
+
+    // Colors follow the text conventions of PlanText / Embedder (warnings start with "!").
+    static Color LineColor(string line)
+    {
+        var t = line.TrimStart();
+        if (t.StartsWith('▶')) return Color.SteelBlue;
+        if (t.StartsWith("Error") || t.Contains("can't be embedded")) return Color.Firebrick;
+        if (t.StartsWith('!')) return Color.DarkOrange;
+        if (t.StartsWith("Done") || t.StartsWith("Saved ")) return Color.ForestGreen;
+        if (t.StartsWith("- ")) return Color.DimGray;
+        return SystemColors.WindowText;
     }
 
     protected override void OnFormClosed(FormClosedEventArgs e)
