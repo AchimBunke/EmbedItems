@@ -22,6 +22,7 @@ sealed class MainForm : Form
     // Map tab
     readonly TextBox mapPath = new() { Dock = DockStyle.Fill };
     readonly TextBox mapName = new() { Dock = DockStyle.Fill, PlaceholderText = "unchanged" };
+    readonly CheckBox embeddedSuffix = new() { Text = "Add \"(embedded)\"", Checked = true, AutoSize = true, Margin = new Padding(3, 6, 12, 3) };
     readonly ListView items = NewList(("Item (original path)", 360), ("State", 110), ("Placed", 55), ("What happens", 600));
     readonly CheckBox overwriteOnExtract = new() { Text = "Overwrite existing files when extracting", AutoSize = true };
 
@@ -45,6 +46,8 @@ sealed class MainForm : Form
         Size = new Size(1150, 780);
         StartPosition = FormStartPosition.CenterScreen;
         maps.CheckBoxes = true;
+        AddPathMenu(items, includeMap: true);
+        AddPathMenu(maps, includeMap: false);
 
         var tm = TrackmaniaFolder.Find(initialMap);
         tmFolder.Text = tm?.Root ?? "";
@@ -69,7 +72,10 @@ sealed class MainForm : Form
         logPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         logPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         split.Panel2.Controls.Add(logPanel);
-        saveAsNew.CheckedChanged += (_, _) => UpdateDefaultMapName();
+        // A new file is called "<name> (embedded)" in game by default; replacing the original keeps the name.
+        // The checkbox can override that either way.
+        saveAsNew.CheckedChanged += (_, _) => embeddedSuffix.Checked = saveAsNew.Checked;
+        embeddedSuffix.CheckedChanged += (_, _) => mapName.Text = WithSuffix(mapName.Text, embeddedSuffix.Checked);
 
         var root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, Padding = new Padding(8) };
         root.Controls.Add(PathRow("Trackmania folder (contains Items\\):", tmFolder, BrowseFolder(tmFolder)));
@@ -111,6 +117,7 @@ sealed class MainForm : Form
         mapName.Width = 250;
         mapName.Dock = DockStyle.None;
         bottom.Controls.Add(mapName);
+        bottom.Controls.Add(embeddedSuffix);
         bottom.Controls.Add(Action("Embed", EmbedMap));
         bottom.Controls.Add(new Label { Width = 40 });
         bottom.Controls.Add(Action("Extract items...", Extract));
@@ -160,6 +167,41 @@ sealed class MainForm : Form
         watchButton.Click += (_, _) => ToggleWatch();
         page.Controls.Add(layout);
         return page;
+    }
+
+    /// <summary>
+    /// Right-click menu (Show in Explorer, Copy path) and double-click to open in Explorer, for a list whose
+    /// rows carry their file path in Tag.
+    /// </summary>
+    void AddPathMenu(ListView list, bool includeMap)
+    {
+        string? Selected() => list.SelectedItems.Count > 0 ? list.SelectedItems[0].Tag as string : null;
+
+        var menu = new ContextMenuStrip();
+        menu.Items.Add("Show in Explorer", null, (_, _) => ShowInExplorer(Selected()));
+        menu.Items.Add("Copy path", null, (_, _) => { if (Selected() is { } p) Clipboard.SetText(p); });
+        if (includeMap)
+        {
+            menu.Items.Add(new ToolStripSeparator());
+            menu.Items.Add("Show map in Explorer", null, (_, _) => ShowInExplorer(mapPath.Text));
+        }
+        menu.Opening += (_, e) => e.Cancel = Selected() is null && !includeMap;
+        list.ContextMenuStrip = menu;
+        list.DoubleClick += (_, _) => ShowInExplorer(Selected());
+    }
+
+    /// <summary>Opens Explorer with the file selected (or its folder, if the file doesn't exist).</summary>
+    void ShowInExplorer(string? path)
+    {
+        if (string.IsNullOrEmpty(path)) return;
+        if (File.Exists(path))
+            System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{path}\"");
+        else if (Path.GetDirectoryName(path) is { } dir && Directory.Exists(dir))
+        {
+            Log($"! {Path.GetFileName(path)} is not in that folder (it may only exist embedded in the map). Opening the folder.");
+            System.Diagnostics.Process.Start("explorer.exe", $"\"{dir}\"");
+        }
+        else Log($"! Not found on disk: {path} (it may only exist embedded in the map).");
     }
 
     static ListView NewList(params (string Title, int Width)[] columns)
@@ -235,7 +277,10 @@ sealed class MainForm : Form
         items.Items.Clear();
         foreach (var item in plan.Items)
         {
-            var row = new ListViewItem(["Items\\" + PathUtils.ToRef(item.OriginalPath), PlanText.StateLabel(item.State), item.PlacedCount.ToString(), item.Summary]);
+            var row = new ListViewItem(["Items\\" + PathUtils.ToRef(item.OriginalPath), PlanText.StateLabel(item.State), item.PlacedCount.ToString(), item.Summary])
+            {
+                Tag = tm.DiskPath(item.OriginalPath),   // for "Show in Explorer" / "Copy path"
+            };
             if (item.State == ItemState.CannotEmbed) row.ForeColor = Color.Firebrick;
             else if (item.Changes) row.ForeColor = Color.DarkGreen;
             row.ToolTipText = string.Join("\n", item.Notes);
@@ -245,25 +290,18 @@ sealed class MainForm : Form
         if (scannedMap != path)   // a different map: start from its own name again
         {
             scannedMap = path;
-            scannedMapName = plan.MapName;
-            mapName.Text = DefaultMapName(saveAsNew.Checked);
+            mapName.Text = WithSuffix(plan.MapName, embeddedSuffix.Checked);
         }
     }
 
-    string? scannedMap, scannedMapName;
+    string? scannedMap;
+    const string Suffix = " (embedded)";
 
-    /// <summary>Saved as a new file the copy is called "&lt;name&gt; (embedded)" in game; replacing keeps the name.</summary>
-    string DefaultMapName(bool asNewFile)
+    /// <summary>The name with or without " (embedded)" at the end (never twice).</summary>
+    static string WithSuffix(string name, bool add)
     {
-        var name = scannedMapName ?? "";
-        return asNewFile && !name.EndsWith(" (embedded)", StringComparison.OrdinalIgnoreCase) ? name + " (embedded)" : name;
-    }
-
-    void UpdateDefaultMapName()
-    {
-        // only replace the name if the user hasn't typed their own
-        if (scannedMapName is not null && mapName.Text == DefaultMapName(!saveAsNew.Checked))
-            mapName.Text = DefaultMapName(saveAsNew.Checked);
+        var plain = name.EndsWith(Suffix, StringComparison.OrdinalIgnoreCase) ? name[..^Suffix.Length] : name;
+        return add ? plain + Suffix : plain;
     }
 
     async Task EmbedMap()
