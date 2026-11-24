@@ -25,8 +25,11 @@ public enum ItemState
     WillRestoreFiles,
     /// <summary>Embedded by EmbedItems and complete.</summary>
     UpToDate,
-    /// <summary>Uses no extra files; the game embeds such items by itself.</summary>
-    NoReferences,
+    /// <summary>
+    /// Uses no extra files and is not in the map yet; its file is added unchanged at its own path, like the editor does
+    /// when saving. Needed for maps that are never saved in the editor (e.g. generated ones).
+    /// </summary>
+    WillAddUnchanged,
     /// <summary>Embedded by the game or another tool; left alone.</summary>
     EmbeddedByOthers,
     /// <summary>Neither embedded nor in the Items folder (stock item, or missing).</summary>
@@ -77,10 +80,10 @@ public sealed class ItemPlan
     /// <summary>Map entry to remove because the item is now embedded under EmbeddedName.</summary>
     internal string? OldZipKey { get; set; }
 
-    public bool Changes => State is ItemState.WillEmbed or ItemState.WillUpdate or ItemState.WillRestoreFiles;
+    public bool Changes => State is ItemState.WillEmbed or ItemState.WillUpdate or ItemState.WillRestoreFiles or ItemState.WillAddUnchanged;
 
-    /// <summary>True once the item is (or will be) embedded by EmbedItems.</summary>
-    internal bool IsOurs => Changes || State == ItemState.UpToDate;
+    /// <summary>True once the item is (or will be) embedded by EmbedItems under its own name (placed objects point to it).</summary>
+    internal bool IsOurs => State is ItemState.WillEmbed or ItemState.WillUpdate or ItemState.WillRestoreFiles or ItemState.UpToDate;
 }
 
 /// <summary>Result of scanning a map: what embedding would do. Embedder.Apply carries it out.</summary>
@@ -105,7 +108,7 @@ public sealed class MapPlan
 
     public bool NeedsWork => Items.Any(i => i.Changes) || NeedsRedirect || StaleFiles.Count > 0;
 
-    public bool HasNotEmbedded => Items.Any(i => i.State == ItemState.WillEmbed);
+    public bool HasNotEmbedded => Items.Any(i => i.State is ItemState.WillEmbed or ItemState.WillAddUnchanged);
     public bool HasMissingFiles => Items.Any(i => i.State == ItemState.WillRestoreFiles);
     public bool HasOutdated => Items.Any(i => i.State == ItemState.WillUpdate);
 }

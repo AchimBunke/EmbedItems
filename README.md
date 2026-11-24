@@ -70,7 +70,11 @@ map. EmbedItems solves this like this:
 - The item's original path is stored in its description (`[EmbedItems] Items\Trees\Tree.Item.Gbx`). That's how
   EmbedItems finds the item again for updates and how Extract puts it back where it was.
 - The item's author is never changed (items whose author was changed afterwards don't show in play mode).
-- Items without extra files are left alone: the game embeds those by itself.
+- Items without extra files that aren't in the map yet are added unchanged at their own path, the way the editor
+  does when saving. So a map that never went through the editor (for example a generated one) is complete too.
+  Once in the map, they are treated like items the game embedded and left alone.
+- Textures named by custom materials (UserTextures / BaseTexture, `Items\...` paths) are embedded at that path.
+  Moving items never read those from the map, only from the Items folder.
 
 An item can't be embedded (and is reported and left unchanged) when:
 

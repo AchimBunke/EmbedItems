@@ -20,6 +20,9 @@ namespace EmbedItems.Core;
 ///     play mode. Placed objects get the item's author instead.
 ///   - Saving a map in the editor drops the extra files and rewrites the references to "ContentLoaded\Items\...".
 ///     Embedding again restores them.
+///   - Custom materials name textures by plain strings (UserTextures / BaseTexture), relative to Documents\Trackmania
+///     ("Items\X\t.dds"), not by references. The game never embeds those files. Static items find them in the map
+///     at that path (in play mode only there); moving items (prefabs) only ever look in the Items folder on disk.
 /// </summary>
 public static class MapPlanner
 {
@@ -124,10 +127,12 @@ public static class MapPlanner
                 return PlanOurs(placedId, zipBytes, marker, ctx);
 
             // Embedded by the game or another tool. The game embeds items that use files without those files
-            // (it only stores "ContentLoaded\..." references), so such an item is broken for other players.
-            // If the original is still in the Items folder, embed it properly instead.
+            // (it only stores "ContentLoaded\..." references, and ignores the textures named by custom materials),
+            // so such an item is broken for other players. If the original is still in the Items folder, embed it
+            // properly instead.
             var refs = TryReadRefs(zipBytes);
-            if (refs.Count > 0 && ctx.Disk(placedId) is not null)
+            var textures = MaterialFiles(zipBytes, ctx, out _);
+            if ((refs.Count > 0 || textures.Count > 0) && ctx.Disk(placedId) is not null)
             {
                 var fixedPlan = PlanFromDisk(placedId, ctx, ours: null);
                 if (fixedPlan.State == ItemState.WillEmbed)
@@ -141,6 +146,8 @@ public static class MapPlanner
             foreach (var r in refs)
                 if (Resolve(placedId, r.AncestorLevel, r.FilePath, ctx.Tm).Target is { } t)
                     ctx.UsedByOthers.Add(t);
+            foreach (var t in textures)
+                ctx.UsedByOthers.Add(t);
             return Simple(placedId, ItemState.EmbeddedByOthers, "already embedded by the game or another tool, left unchanged.");
         }
 
@@ -193,10 +200,17 @@ public static class MapPlanner
         try { refs = GbxFileUtils.ReadRefs(bytes); }
         catch (Exception ex) { return Fail(plan, $"Can't read the item file: {ex.Message}"); }
 
-        if (refs.Count == 0 && ours is null)
+        // textures named by custom materials (plain strings, not references); their paths don't depend on where the
+        // item sits, so they stay as they are when the item moves to the Items root
+        var materialFiles = MaterialFiles(bytes, ctx, out bool isPrefab);
+        if (refs.Count == 0 && materialFiles.Count == 0 && ours is null)
         {
-            plan.State = ItemState.NoReferences;
-            plan.Summary = "uses no extra files (the game embeds it by itself), left unchanged.";
+            // the item isn't in the map (PlanPlaced checks that first): add it as it is, at its own path, so placed
+            // objects need no change. No marker, so later runs see it like an item the game embedded.
+            plan.EmbeddedName = null;
+            plan.FilesToWrite[originalPath] = bytes;
+            plan.State = ItemState.WillAddUnchanged;
+            plan.Summary = "uses no extra files, will be added to the map unchanged.";
             return plan;
         }
 
@@ -210,8 +224,10 @@ public static class MapPlanner
         }
 
         var rewritten = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        if (!CollectFiles(targets, preferZip: false, ctx, plan, rewritten))
+        if (!CollectFiles([.. targets, .. materialFiles], preferZip: false, ctx, plan, rewritten))
             return plan;
+        if (isPrefab && materialFiles.Count > 0)
+            plan.Notes.Add(PrefabTextureNote);
 
         string diskHash = GbxFileUtils.Hash(bytes);
         if (ours is not null && IsUpToDate(ours, diskHash, plan, rewritten, ctx))
@@ -269,7 +285,7 @@ public static class MapPlanner
         }
 
         var rewritten = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        if (!CollectFiles(targets, preferZip: true, ctx, plan, rewritten))
+        if (!CollectFiles([.. targets, .. MaterialFiles(ours.Bytes, ctx, out _)], preferZip: true, ctx, plan, rewritten))
             return plan;
 
         if (!refsOk)
@@ -356,6 +372,10 @@ public static class MapPlanner
                     bytes = GbxFileUtils.RewriteRefs(bytes, newPaths);
                     rewritten.Add(path);
                 }
+
+                // a mesh or material in its own file can name textures too
+                foreach (var t in MaterialFiles(bytes, ctx, out _))
+                    queue.Enqueue(t);
             }
 
             plan.FileCount++;
@@ -391,6 +411,8 @@ public static class MapPlanner
         while (queue.Count > 0)
         {
             var (owner, bytes) = queue.Dequeue();
+            foreach (var t in MaterialFiles(bytes, ctx, out _))
+                plan.OldFiles.Add(t);
             List<GbxFileUtils.Ref> refs;
             try { refs = GbxFileUtils.ReadRefs(bytes); }
             catch { continue; }
@@ -418,6 +440,31 @@ public static class MapPlanner
     {
         try { return GbxFileUtils.ReadRefs(bytes); }
         catch { return []; }
+    }
+
+    const string PrefabTextureNote =
+        "It's a moving item (prefab): those never read textures from the map, only from the Items folder (in-game tests). " +
+        "Its own textures only show for players who have them at the same path; for shared maps use game textures.";
+
+    /// <summary>
+    /// Items-relative texture files named by the custom materials of a Gbx file (see GbxFileUtils.ReadMaterialTextures).
+    /// Game textures are skipped (they come from the game data). Optional BaseTexture candidates only count when the
+    /// file exists on disk or in the map.
+    /// </summary>
+    static List<string> MaterialFiles(byte[] gbx, Context ctx, out bool isPrefab)
+    {
+        isPrefab = false;
+        GbxFileUtils.MaterialTextures textures;
+        try { textures = GbxFileUtils.ReadMaterialTextures(gbx); }
+        catch { return []; }   // not readable as item / mesh / material: nothing to add
+        isPrefab = textures.IsPrefab;
+
+        var files = new List<string>();
+        foreach (var p in textures.Required)
+            if (MaterialTextureTarget(p) is { } t) files.Add(t);
+        foreach (var p in textures.Optional)
+            if (MaterialTextureTarget(p) is { } t && (ctx.Disk(t) is not null || ctx.FromZip(t) is not null)) files.Add(t);
+        return files.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
     }
 
     /// <summary>"Testing/Trees/Tree.Item.Gbx" -> "Tree_3fa2c1d4.Item.Gbx" (postfix from the original path).</summary>

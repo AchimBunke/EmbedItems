@@ -60,6 +60,15 @@ public class PathUtilsTests : IDisposable
     [InlineData("EmbedItems/manifest.json", null)]
     public void ZipKey(string entry, string? expected) => Assert.Equal(expected, PathUtils.ZipKey(entry));
 
+    [Theory]
+    [InlineData(@"Items\Testing\Tex\Checker_D.dds", "Testing/Tex/Checker_D.dds")]
+    [InlineData(@"\Items\Testing\Tex\Checker", "Testing/Tex/Checker")]                  // NadeoImporter BaseTexture form
+    [InlineData(@"Stadium\Media\Texture\Image\RoadIce_D.dds", null)]                    // game texture
+    [InlineData("Checker", null)]                                                         // item-relative BaseTexture
+    [InlineData(@"Items\", null)]
+    public void MaterialTextureTarget(string texture, string? expected) =>
+        Assert.Equal(expected, PathUtils.MaterialTextureTarget(texture));
+
     [Fact]
     public void EmbeddedName_is_stable_and_differs_per_folder()
     {

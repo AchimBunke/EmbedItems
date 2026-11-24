@@ -9,7 +9,7 @@ public static class PlanText
         ItemState.WillUpdate => "will update",
         ItemState.WillRestoreFiles => "files missing",
         ItemState.UpToDate => "embedded",
-        ItemState.NoReferences => "no extra files",
+        ItemState.WillAddUnchanged => "will add",
         ItemState.EmbeddedByOthers => "embedded by game",
         ItemState.NotFound => "not found",
         ItemState.CannotEmbed => "CAN'T EMBED",
@@ -46,6 +46,7 @@ public static class PlanText
         ItemState.WillEmbed => $"embedded as {item.EmbeddedName} with {item.FileCount} file(s)",
         ItemState.WillUpdate => $"updated {item.EmbeddedName} from your Items folder",
         ItemState.WillRestoreFiles => $"put back {item.FilesToWrite.Count} missing file(s) of {item.EmbeddedName}",
+        ItemState.WillAddUnchanged => "added to the map unchanged",
         _ => item.Summary,
     };
 
@@ -54,7 +55,7 @@ public static class PlanText
     {
         var parts = new List<string>();
         void Add(int n, string what) { if (n > 0) parts.Add($"{n} {what}"); }
-        Add(plan.Items.Count(i => i.State == ItemState.WillEmbed), "to embed");
+        Add(plan.Items.Count(i => i.State is ItemState.WillEmbed or ItemState.WillAddUnchanged), "to embed");
         Add(plan.Items.Count(i => i.State == ItemState.WillUpdate), "outdated");
         Add(plan.Items.Count(i => i.State == ItemState.WillRestoreFiles), "missing files");
         Add(plan.Items.Count(i => i.State == ItemState.CannotEmbed), "can't embed");

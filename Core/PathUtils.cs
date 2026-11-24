@@ -91,6 +91,18 @@ public static class PathUtils
         return (string.Join('/', parts), canonical);
     }
 
+    /// <summary>
+    /// Items-relative path of a texture named in a custom material (CPlugMaterialUserInst.UserTextures / BaseTexture).
+    /// The game reads those paths relative to Documents\Trackmania ("Items\X\t.dds", NadeoImporter writes "\Items\..."),
+    /// so the item's own location doesn't matter. Null for game textures (paths inside GameData, e.g.
+    /// "Stadium\Media\Texture\Image\RoadIce_D.dds") and anything else not below the Items folder.
+    /// </summary>
+    public static string? MaterialTextureTarget(string texturePath)
+    {
+        var p = Norm(texturePath);
+        return p.StartsWith("Items/", StringComparison.OrdinalIgnoreCase) && p.Length > "Items/".Length ? p["Items/".Length..] : null;
+    }
+
     public static bool IsGbx(string path) => path.EndsWith(".gbx", StringComparison.OrdinalIgnoreCase);
 
     public static bool IsItem(string path) => path.EndsWith(".Item.Gbx", StringComparison.OrdinalIgnoreCase);
