@@ -9,6 +9,8 @@
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
         <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+        <!-- Local builds are 0.0.0 (no update check comparison); release.yml sets the tag's version with -p:Version. -->
+        <Version>0.0.0</Version>
         <!-- Folder scans parse many maps in parallel and allocate large buffers; with the default GC all threads
              wait on one collector (1050 maps: 23.6 s vs 10.5 s with server GC). -->
         <ServerGarbageCollection>true</ServerGarbageCollection>

@@ -40,6 +40,11 @@ sealed class MainForm : Form
 
     readonly List<Button> actionButtons = [];
 
+    // updates (Help menu; the "available" entry sits at the right end of the menu bar and only shows when there is one)
+    readonly AppSettings settings = AppSettings.Load();
+    readonly ToolStripMenuItem checkForUpdates = new("Check for updates at start") { CheckOnClick = true };
+    readonly ToolStripMenuItem updateAvailable = new() { Alignment = ToolStripItemAlignment.Right, Visible = false, ForeColor = Color.ForestGreen };
+
     public MainForm(string? initialMap)
     {
         Text = "EmbedItems";
@@ -85,6 +90,10 @@ sealed class MainForm : Form
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         Controls.Add(root);
+        var menu = MenuBar();
+        Controls.Add(menu);   // added after the Fill panel so it docks above it
+        MainMenuStrip = menu;
+        Shown += async (_, _) => await UpdateCheckAtStart();
 
         Log("EmbedItems copies custom items and the files they use (textures, meshes, ...) into a map, so other players see them.");
         Log("Validate your map in the editor first. Don't open and save the embedded map in the editor afterwards: the game removes");
@@ -104,6 +113,130 @@ sealed class MainForm : Form
         new ToolTip().SetToolTip(overwriteFromDisk, "Items embedded by EmbedItems before are replaced by the current version from your Items folder.\n" +
                                                     "Off: they are kept as they are; only missing files are put back.");
         return box;
+    }
+
+    MenuStrip MenuBar()
+    {
+        var help = new ToolStripMenuItem("Help");
+        help.DropDownItems.Add("Check for updates", null, (_, _) => _ = CheckForUpdates(manual: true));
+        help.DropDownItems.Add(checkForUpdates);
+        help.DropDownItems.Add(new ToolStripSeparator());
+        help.DropDownItems.Add("About EmbedItems", null, (_, _) => ShowAbout());
+
+        checkForUpdates.Checked = settings.CheckForUpdates == true;
+        checkForUpdates.ToolTipText = "Asks GitHub once a day whether a newer version exists (a normal web request, no personal data).\n" +
+                                      "Nothing is downloaded: an entry at the right of the menu bar appears when there is a new version.";
+        checkForUpdates.CheckedChanged += (_, _) =>
+        {
+            settings.CheckForUpdates = checkForUpdates.Checked;
+            settings.Save();
+        };
+        updateAvailable.Click += (_, _) => { if (updateAvailable.Tag is string url) OpenUrl(url); };
+
+        var menu = new MenuStrip { ShowItemToolTips = true };
+        menu.Items.Add(help);
+        menu.Items.Add(updateAvailable);
+        return menu;
+    }
+
+    const string Author = "Achioto";
+    const string AuthorGitHub = "https://github.com/AchimBunke";
+    const string RepoUrl = "https://github.com/AchimBunke/EmbedItems";
+    const string DiscordUrl = "";   // invite or profile link; the line is hidden while empty
+
+    /// <summary>Small About window with clickable links (a MessageBox can't show links).</summary>
+    void ShowAbout()
+    {
+        var version = UpdateChecker.CurrentVersion();
+        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, Padding = new Padding(16), AutoSize = true };
+        layout.Controls.Add(new Label { Text = $"EmbedItems {(version is null ? "(local build)" : version.ToString(3))}", AutoSize = true, Font = headerFont });
+        layout.Controls.Add(new Label { Text = "Embeds custom items and the files they use into Trackmania maps.", AutoSize = true, Margin = new Padding(3, 6, 3, 12) });
+        layout.Controls.Add(new Label { Text = $"Made by {Author}", AutoSize = true });
+        layout.Controls.Add(Link("GitHub: " + AuthorGitHub, AuthorGitHub));
+        if (DiscordUrl.Length > 0) layout.Controls.Add(Link("Discord: " + DiscordUrl, DiscordUrl));
+        layout.Controls.Add(Link("Source code, releases and issues: " + RepoUrl, RepoUrl));
+
+        var ok = new Button { Text = "OK", AutoSize = true, DialogResult = DialogResult.OK, Anchor = AnchorStyles.Right, Margin = new Padding(3, 16, 3, 3) };
+        layout.Controls.Add(ok);
+
+        using var dialog = new Form
+        {
+            Text = "About EmbedItems", FormBorderStyle = FormBorderStyle.FixedDialog, MaximizeBox = false, MinimizeBox = false,
+            ShowInTaskbar = false, StartPosition = FormStartPosition.CenterParent, AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink, AcceptButton = ok, CancelButton = ok,
+        };
+        dialog.Controls.Add(layout);
+        dialog.ShowDialog(this);
+    }
+
+    static LinkLabel Link(string text, string url)
+    {
+        var link = new LinkLabel { Text = text, AutoSize = true };
+        link.LinkClicked += (_, _) => OpenUrl(url);
+        return link;
+    }
+
+    static void OpenUrl(string url) =>
+        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true });
+
+    /// <summary>
+    /// First start: asks whether to check for updates. Afterwards checks at most once a day if enabled, and otherwise
+    /// shows what the last check found.
+    /// </summary>
+    async Task UpdateCheckAtStart()
+    {
+        if (settings.CheckForUpdates is null)
+        {
+            settings.CheckForUpdates = MessageBox.Show(this,
+                "Check for new versions of EmbedItems when it starts?\n\n" +
+                "It asks GitHub at most once a day and sends no personal data. Nothing is downloaded automatically:\n" +
+                "an entry at the right of the menu bar appears when there is a new release.\n" +
+                "You can change this at any time under Help.",
+                "EmbedItems", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes;
+            settings.Save();
+            checkForUpdates.Checked = settings.CheckForUpdates.Value;
+        }
+        if (settings.CheckForUpdates != true) return;
+
+        if (settings.LastUpdateCheck is { } last && DateTime.UtcNow - last < TimeSpan.FromDays(1))
+            ShowUpdate(UpdateChecker.ParseTag(settings.LatestVersion));
+        else
+            await CheckForUpdates(manual: false);
+    }
+
+    /// <summary>Asks GitHub for the latest version. manual: report every outcome in the messages, not only a new version.</summary>
+    async Task CheckForUpdates(bool manual)
+    {
+        var latest = await UpdateChecker.GetLatestAsync();
+        if (latest is not null)
+        {
+            settings.LastUpdateCheck = DateTime.UtcNow;
+            settings.LatestVersion = latest.ToString(3);
+            settings.Save();
+        }
+        bool isNew = ShowUpdate(latest);
+        if (!manual) return;
+
+        var current = UpdateChecker.CurrentVersion();
+        if (latest is null) Log("! Could not reach GitHub to check for updates.");
+        else if (isNew) Log($"EmbedItems {latest.ToString(3)} is available: click it at the right of the menu bar.");
+        else if (current is null) Log($"Local build: no version to compare. The latest release is {latest.ToString(3)}.");
+        else Log($"You have the latest version ({current.ToString(3)}).");
+    }
+
+    /// <summary>Shows the menu-bar entry if latest is newer than this program. Returns whether it is.</summary>
+    bool ShowUpdate(Version? latest)
+    {
+        var current = UpdateChecker.CurrentVersion();
+        bool isNew = latest is not null && current is not null && UpdateChecker.IsNewer(latest, current);
+        updateAvailable.Visible = isNew;
+        if (isNew)
+        {
+            updateAvailable.Text = $"⬆ EmbedItems {latest!.ToString(3)} available";
+            updateAvailable.ToolTipText = "Opens the release page on GitHub";
+            updateAvailable.Tag = UpdateChecker.ReleaseUrl(latest);
+        }
+        return isNew;
     }
 
     TabPage MapTab()

@@ -40,6 +40,11 @@ Both are single self-contained files (no .NET install needed). Put them anywhere
 
 You can also drop a map onto `EmbedItems.exe` to open it.
 
+**Updates**: at the first start the app asks whether it may check for new versions. If you agree, it asks GitHub
+at most once a day (a normal web request to the release page, no personal data) and shows an entry at the right
+of the menu bar when a new release exists. Nothing is downloaded automatically. Under **Help**, *Check for updates
+at start* changes your answer and *Check for updates* checks right away. The command line never checks.
+
 ## Command line
 
 ```
